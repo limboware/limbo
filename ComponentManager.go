@@ -4,11 +4,12 @@ import (
 	"unsafe"
 
 	errnov1 "github.com/rejchev/errno"
+	loggerv1 "limboware.com/pkg/logger/v1"
 )
 
 type location uint64
 
-func locationOf(i int, j int) location {
+func LocationOf(i int, j int) location {
 	return location(uint64(uint8(i))<<32 | uint64(uint32(j)))
 }
 
@@ -80,7 +81,7 @@ func (x *ComponentManager) New(e Entity, t Compotype, buff *Component) errnov1.C
 		}
 	}
 
-	loc := locationOf(t.Int(), len(x.container[index]))
+	loc := LocationOf(t.Int(), len(x.container[index]))
 
 	// allocate new comp
 	x.container[index] = append(x.container[index], Compotypes().Allocate(t))
@@ -97,7 +98,7 @@ func (x *ComponentManager) New(e Entity, t Compotype, buff *Component) errnov1.C
 }
 
 func (x *ComponentManager) Get(v Component) unsafe.Pointer {
-	loc := locationOf(0, 0)
+	loc := LocationOf(0, 0)
 
 	if errnov1.SUCCESS(x.navigate(v, &loc)) {
 		return x.Components()[loc.getI()][loc.getJ()]
@@ -107,7 +108,7 @@ func (x *ComponentManager) Get(v Component) unsafe.Pointer {
 }
 
 func (x *ComponentManager) Destroy(v Component) {
-	loc := locationOf(0, 0)
+	loc := LocationOf(0, 0)
 
 	if errnov1.FAIL(x.navigate(v, &loc)) {
 		return
@@ -119,7 +120,7 @@ func (x *ComponentManager) Destroy(v Component) {
 		Entities().WithoutComponent(v.Entity(), v.Compotype())
 	}
 
-	locLast := locationOf(loc.getI(), len(x.container[loc.getI()])-1)
+	locLast := LocationOf(loc.getI(), len(x.container[loc.getI()])-1)
 
 	if last, ok := x.navigator2[locLast]; ok && !loc.isSame(locLast) {
 		x.container[loc.getI()][loc.getJ()] = x.container[locLast.getI()][locLast.getJ()]
@@ -153,12 +154,12 @@ func (x *ComponentManager) IterateB(v Compotype, fn func(Entity, unsafe.Pointer)
 	}
 
 	i := v.Int()
-	loc := locationOf(0, 0)
+	loc := LocationOf(0, 0)
 	component := Component(0)
 	entities := Entities()
 
 	for j, y := range x.container[v.Int()] {
-		if loc = locationOf(i, j); errnov1.SUCCESS(x.navigate2(loc, &component)) {
+		if loc = LocationOf(i, j); errnov1.SUCCESS(x.Navigate2(loc, &component)) {
 			if entities.IsAlive(component.Entity()) {
 				fn(component.Entity(), y)
 			}
@@ -203,7 +204,7 @@ func (x *ComponentManager) navigate(v Component, buff *location) errnov1.Code {
 	return errnov1.EINVAL
 }
 
-func (x *ComponentManager) navigate2(i location, buff *Component) errnov1.Code {
+func (x *ComponentManager) Navigate2(i location, buff *Component) errnov1.Code {
 	if v, ok := x.navigator2[i]; ok {
 		*buff = v
 		return errnov1.OK
@@ -219,6 +220,14 @@ func (x *ComponentManager) navigateA(e Entity, t Compotype, buff *location) errn
 func (x *ComponentManager) Contains(v Component) bool {
 	_, ok := x.navigator[v]
 	return ok
+}
+
+func (x *ComponentManager) Len(v Compotype) int {
+	if len(x.container) <= v.Int() {
+		return 0
+	}
+
+	return len(x.container[v.Int()])
 }
 
 func (x *ComponentManager) ContainsA(e Entity, t Compotype) bool {
