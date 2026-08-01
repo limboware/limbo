@@ -4,7 +4,6 @@ import (
 	"unsafe"
 
 	errnov1 "github.com/rejchev/errno"
-	loggerv1 "limboware.com/pkg/logger/v1"
 )
 
 type location uint64
