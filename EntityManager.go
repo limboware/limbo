@@ -38,24 +38,27 @@ func (x *EntityManager) Cleanup() {
 }
 
 func (x *EntityManager) Create() Entity {
-	idx := uint32(0)
+	id := uint32(0)
 
 	if len(x.free) > 0 {
-		idx = x.free[len(x.free)-1]
+		id = x.free[len(x.free)-1]
 		x.free = x.free[:len(x.free)-1]
 	} else {
-		idx = uint32(len(x.gens))
+		id = uint32(len(x.gens))
 		x.gens = append(x.gens, 0)
 	}
 
-	if len(x.mask) <= int(idx) {
-		x.mask = append(x.mask, CreateComponentMask())
-	}
+	ent := CreateEntity(id, x.gens[id])
 
-	ent := CreateEntity(idx, x.gens[idx])
+	innerIdx := len(x.ents)
 
 	x.ents = append(x.ents, ent)
-	x.entmap[ent] = len(x.ents) - 1
+
+	if len(x.mask) <= int(innerIdx) {
+		x.mask = append(x.mask, make([]ComponentMask, innerIdx+1-len(x.mask))...)
+	}
+
+	x.entmap[ent] = innerIdx
 
 	Events().Publish("entity.created", ent)
 
@@ -74,9 +77,9 @@ func (x *EntityManager) Destroy(v Entity) {
 
 	idx := v.Id()
 	x.gens[idx]++
-	x.mask[idx].Reset()
+	x.mask[innerIdx].Reset()
 	x.free = append(x.free, idx)
-
+	
 	entsLen := len(x.ents)
 
 	if entsLen > (innerIdx + 1) {
@@ -93,7 +96,7 @@ func (x *EntityManager) Destroy(v Entity) {
 }
 
 func (x *EntityManager) Mask(v Entity) ComponentMask {
-	return x.mask[v.Id()]
+	return x.mask[x.index(v)]
 }
 
 func (x *EntityManager) Iterator() *Iterator[Entity] {
@@ -117,7 +120,7 @@ func (x *EntityManager) WithoutComponent(e Entity, v Compotype) {
 }
 
 func (x *EntityManager) SetMask(e Entity, v ComponentMask) {
-	x.mask[e.Id()] = v
+	x.mask[x.index(e)] = v
 }
 
 func (x *EntityManager) Masks() []ComponentMask {
