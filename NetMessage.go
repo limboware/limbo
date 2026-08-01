@@ -107,8 +107,7 @@ func (x *NetMessage) HeaderChecksum() uint32 {
 }
 
 func (x *NetMessage) HeaderRealChecksum() uint32 {
-	data := x.Bytes(NETMSG_HEADER_SIZE)
-	return crc32.ChecksumIEEE(append(data[0:42], data[46:]...))
+	return crc32.ChecksumIEEE(append(x.BytesB(0, 42), x.BytesB(46, NETMSG_HEADER_SIZE-46)...))
 }
 
 func (x *NetMessage) Flags() NetMessageFlag {
@@ -202,7 +201,7 @@ func (x *NetMessageBuilder) PutPayloadChecksum(v uint32) *NetMessageBuilder {
 }
 
 func (x *NetMessageBuilder) headerChecksum() *NetMessageBuilder {
-	binary.BigEndian.PutUint32(unsafe.Slice((*byte)(unsafe.Add(unsafe.Pointer(x), 42)), 4), (*NetMessage)(x).HeaderRealChecksum())
+	binary.BigEndian.PutUint32(unsafe.Slice((*byte)(unsafe.Add(unsafe.Pointer(x), 42)), 4), ((*NetMessage)(x)).HeaderRealChecksum())
 	return x
 }
 
