@@ -98,8 +98,7 @@ func (x *NetMessage) PayloadChecksum() uint32 {
 }
 
 func (x *NetMessage) PayloadRealChecksum() uint32 {
-	data := x.BytesB(NETMSG_HEADER_SIZE, int(x.PayloadLen()))
-	return crc32.ChecksumIEEE(data)
+	return crc32.ChecksumIEEE(x.BytesB(NETMSG_HEADER_SIZE, int(x.PayloadLen())))
 }
 
 func (x *NetMessage) HeaderChecksum() uint32 {
