@@ -28,19 +28,15 @@ func Networks() *NetworkManager {
 	return &manager
 }
 
-// Connection implements [IConnectionManager].
-func (x *NetworkManager) Connection(v ConnectionId) net.Conn {
-	if x.gens[v.Id()] != v.State() {
+func (x *NetworkManager) Connection(v NetConn) net.Conn {
+	if x.gens[v.Id()] != v.Gen() {
 		return nil
 	}
 
 	return x.conns[v.Id()]
 }
 
-func (x *NetworkManager) OnAllLoaded() {}
-
-// Destroy implements [IConnectionManager].
-func (x *NetworkManager) Destroy(v ConnectionId) {
+func (x *NetworkManager) Destroy(v NetConn) {
 
 	if !x.IsAlive(v) {
 		return
@@ -67,11 +63,11 @@ func (x *NetworkManager) Destroy(v ConnectionId) {
 	Events().Publish("connection.closed", v)
 }
 
-func (x *NetworkManager) Protocol(v ConnectionId) uint8 {
-	return v.Protocol()
+func (x *NetworkManager) Type(v NetConn) NetConnType {
+	return v.Type()
 }
 
-func (x *NetworkManager) Addr(v ConnectionId) net.Addr {
+func (x *NetworkManager) Addr(v NetConn) net.Addr {
 	if conn := x.Connection(v); conn != nil {
 		return conn.RemoteAddr()
 	}
@@ -79,8 +75,8 @@ func (x *NetworkManager) Addr(v ConnectionId) net.Addr {
 	return nil
 }
 
-func (x *NetworkManager) TCPAddr(v ConnectionId) *net.TCPAddr {
-	if v.Protocol() == 1 {
+func (x *NetworkManager) TCPAddr(v NetConn) *net.TCPAddr {
+	if v.Type() == 1 {
 		if addr := x.Addr(v); addr != nil {
 			if tcp, ok := addr.(*net.TCPAddr); ok {
 				return tcp
@@ -91,24 +87,19 @@ func (x *NetworkManager) TCPAddr(v ConnectionId) *net.TCPAddr {
 	return nil
 }
 
-func (x NetworkManager) IsAlive(v ConnectionId) bool {
-	return x.gens[v.Id()] == v.State()
+func (x NetworkManager) IsAlive(v NetConn) bool {
+	return x.gens[v.Id()] == v.Gen()
 }
 
 func (x *NetworkManager) Init() errnov1.Code {
 	return errnov1.OK
 }
 
-// Count implements [IConnectionManager].
 func (x *NetworkManager) Count() int {
 	return x.count
 }
 
-func (x *NetworkManager) Connect(con net.Conn, buff *ConnectionId) errnov1.Code {
-	return x.ConnectB(con, 1, buff)
-}
-
-func (x *NetworkManager) ConnectB(conn net.Conn, proto uint8, buff *ConnectionId) errnov1.Code {
+func (x *NetworkManager) Connect(conn net.Conn, typ NetConnType, buff *NetConn) errnov1.Code {
 	idx := uint64(0)
 
 	if len(x.free) > 0 {
@@ -134,7 +125,7 @@ func (x *NetworkManager) ConnectB(conn net.Conn, proto uint8, buff *ConnectionId
 
 	x.count++
 
-	*buff = CreateConnectionId().SetId(idx).SetProtocol(proto).SetState(x.gens[idx])
+	*buff = MakeNetConn().SetId(idx).SetType(typ).SetGen(x.gens[idx])
 
 	Events().PublishAsync("connection.new", *buff)
 
