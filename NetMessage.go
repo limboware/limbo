@@ -2,6 +2,7 @@ package limbov1
 
 import (
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"unsafe"
 )
@@ -143,6 +144,24 @@ func (x *NetMessage) BytesB(offset, len int) []byte {
 
 func (x *NetMessage) Builder() *NetMessageBuilder {
 	return (*NetMessageBuilder)(x)
+}
+
+func (x *NetMessage) String() string {
+	return fmt.Sprintf("Magic: %d\nVersion: %d\nTotalLen: %d\nSeq: %d\nTime: %d\nSID: %d\nType: %d\nPLen: %d\nPSum: %d\nHSum: %d\nFlags: %d\nKeyID: %d\nHRSum: %d\nPRSum: %d",
+		x.Magic(),
+		x.Version(),
+		x.TotalLen(),
+		x.Sequence(),
+		x.Timestamp(),
+		x.SessionID(),
+		x.Type(),
+		x.PayloadLen(),
+		x.PayloadChecksum(),
+		x.HeaderChecksum(),
+		x.Flags(),
+		x.KeyID(),
+		x.HeaderRealChecksum(),
+		x.PayloadRealChecksum())
 }
 
 // NetMessageBuilder
