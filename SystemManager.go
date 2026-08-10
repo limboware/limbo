@@ -1,133 +1,110 @@
 package limbov1
 
 import (
-	"reflect"
 	"time"
 
 	errnov1 "github.com/rejchev/errno"
 )
 
-var _ ISystem = (*SystemManager)(nil)
-
 type SystemManager struct {
-	systems []ISystem
+	container []*System
 
-	alias map[string]int
+	router map[uintptr]int
 }
 
 // OnDeActivate implements [ISystem].
 func (x *SystemManager) Deactivate() {
-	for _, y := range x.systems {
-		y.Deactivate()
+	for i := range len(x.container) {
+		if x.container[i].Deactivate != nil {
+			x.container[i].Deactivate()
+		}
 	}
 }
 
-var systemManager = SystemManager{
-	systems: make([]ISystem, 0, 8),
-	alias:   map[string]int{},
-}
+var systemManager = SystemManager{}
 
 func Systems() *SystemManager {
 	return &systemManager
 }
 
-// OnActivate implements [ISystemComponent].
 func (x *SystemManager) Activate() bool {
-	for _, y := range x.systems {
-		if !y.Activate() {
-			return false
+	res := true
+	for i := range len(x.container) {
+		if x.container[i].Activate != nil {
+			if res = x.container[i].Activate(); !res {
+				return res
+			}
 		}
 	}
 
-	return true
+	return res
 }
 
-// OnUnLoad implements [ISystemComponent].
-func (x *SystemManager) Unload() {
-	for _, y := range x.systems {
-		y.Unload()
-	}
-}
-
-func (x *SystemManager) Load() errnov1.Code {
-	for _, y := range x.systems {
-		if res := y.Load(); res != errnov1.OK {
-			return res
+func (x *SystemManager) Destroy() {
+	for i := range len(x.container) {
+		if x.container[i].Destroy != nil {
+			x.container[i].Destroy()
 		}
 	}
+}
 
+func (x *SystemManager) Init() errnov1.Code {
+	x.container = make([]*System, 0, 8)
+	x.router = map[uintptr]int{}
 	return errnov1.OK
 }
 
-func (x *SystemManager) OnAllLoaded() {
-	for _, y := range x.systems {
-		y.OnAllLoaded()
+func (x *SystemManager) Load() errnov1.Code {
+	res := errnov1.OK
+	for i := range len(x.container) {
+		if x.container[i].Init != nil {
+			if res = x.container[i].Init(); errnov1.FAIL(res) {
+				return res
+			}
+		}
 	}
+
+	return res
 }
 
 func (x *SystemManager) Count() int {
-	return len(x.systems)
+	return len(x.container)
 }
 
-func (x *SystemManager) SystemByIndex(v int) ISystem {
-	return x.systems[v]
-}
-
-func (x *SystemManager) SystemTypeByIndex(v int) string {
-	return reflect.TypeOf(x.systems[v]).String()
-}
-
-func (x *SystemManager) Create(k string, v ISystem) int {
-	idx := len(x.systems)
-	x.systems = append(x.systems, v)
-	x.alias[k] = idx
-	return idx
-}
-
-func (x *SystemManager) Destroy(v string) {
-	if !x.Contains(v) {
-		return
+func (x *SystemManager) Register(allocFn func(*System) uintptr) bool {
+	sys := new(System)
+	if typePtr := allocFn(sys); typePtr != 0 {
+		if !x.Contains(typePtr) {
+			x.container = append(x.container, sys)
+			x.router[typePtr] = len(x.container) - 1
+			return true
+		}
 	}
 
-	l := len(x.systems)
-	if l == 1 {
-		x.systems = make([]ISystem, 0, 8)
-		delete(x.alias, v)
-		return
-	}
-
-	idx := x.alias[v]
-	delete(x.alias, v)
-
-	last := l - 1
-	if last == idx {
-		x.systems = x.systems[:last]
-		return
-	}
-
-	ls := x.systems[last]
-	lt := reflect.TypeOf(ls).String()
-
-	x.systems = x.systems[:last]
-	x.systems[idx] = ls
-	x.alias[lt] = idx
+	return false
 }
 
-func (x *SystemManager) System(v string) ISystem {
+func (x *SystemManager) System(v uintptr) *System {
 	if !x.Contains(v) {
 		return nil
 	}
 
-	return x.SystemByIndex(x.alias[v])
+	return x.container[x.route(v)]
 }
 
-func (x *SystemManager) Contains(v string) bool {
-	_, ok := x.alias[v]
+func (x *SystemManager) route(v uintptr) int {
+	return x.router[v]
+}
+
+func (x *SystemManager) Contains(v uintptr) bool {
+	_, ok := x.router[v]
 	return ok
 }
 
 func (x *SystemManager) Update(dt time.Duration) {
-	for _, v := range x.systems {
-		v.Update(dt)
+	for i := range len(x.container) {
+		if x.container[i].Update != nil {
+			x.container[i].Update(dt)
+		}
 	}
 }

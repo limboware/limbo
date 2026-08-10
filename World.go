@@ -6,40 +6,26 @@ import (
 	errnov1 "github.com/rejchev/errno"
 )
 
-var _ ISystem = (*World)(nil)
-
 type World struct {
 	tickCounter uint64
 }
 
-// OnDeActivate implements [ISystem].
 func (x *World) Deactivate() {
 	Systems().Deactivate()
 }
 
-// OnActivate implements [ISystem].
 func (x *World) Activate() bool {
 	return Systems().Activate()
 }
 
-// OnAllLoaded implements [ISystem].
-func (x *World) OnAllLoaded() {
-	Systems().OnAllLoaded()
+func (x *World) Destroy() {
+	Systems().Destroy()
 }
 
-// OnUnLoad implements [ISystem].
-func (x *World) Unload() {
-	Systems().Unload()
-}
-
-var world = World{tickCounter: 0}
+var world = World{}
 
 func GetWorld() *World {
 	return &world
-}
-
-func (x *World) CreateSystem(name string, v ISystem) int {
-	return Systems().Create(name, v)
 }
 
 func (x *World) CreateEntity() Entity {
@@ -50,7 +36,7 @@ func (x *World) CreateCompotype(allocFn CompotypeAllocator, buff *Compotype) boo
 	return Compotypes().Register(allocFn, buff)
 }
 
-func (x *World) Load() errnov1.Code {
+func (x *World) Init() errnov1.Code {
 	x.tickCounter = 0
 
 	if err := Entities().Init(); err != errnov1.OK {
@@ -68,6 +54,8 @@ func (x *World) Load() errnov1.Code {
 	if err := Systems().Load(); err != errnov1.OK {
 		return err
 	}
+
+	Events().Publish("world.loaded", nil)
 
 	return errnov1.OK
 }

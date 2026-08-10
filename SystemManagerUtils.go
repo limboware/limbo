@@ -6,17 +6,25 @@ import (
 )
 
 func SystemPtr[T any]() *T {
-	if v := Systems().System(reflect.TypeFor[T]().Name()); v != nil {
-		return (*T)(unsafe.Pointer(reflect.ValueOf(v).Pointer()))
+	if v := Systems().System(systemType[T]()); v != nil {
+		return (*T)(v.Instance)
 	}
 
 	return nil
 }
 
 func SystemExists[T any]() bool {
-	return Systems().Contains(reflect.TypeFor[T]().Name())
+	return Systems().Contains(systemType[T]())
 }
 
-func SystemRegister[T ISystem](v T) bool {
-	return Systems().Create(reflect.TypeFor[T]().Name(), v) != -1
+func SystemRegister[T any](allocFn func(*System)) bool {
+	return Systems().Register(func(x *System) uintptr {
+		allocFn(x)
+		return systemType[T]()
+	})
+}
+
+func systemType[T any]() uintptr {
+	t := reflect.TypeFor[*T]()
+	return (*[2]uintptr)(unsafe.Pointer(&t))[1]
 }

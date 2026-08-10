@@ -2,18 +2,22 @@ package limbov1
 
 import (
 	"time"
+	"unsafe"
 
 	errnov1 "github.com/rejchev/errno"
 )
 
-type ISystem interface {
-	Load() errnov1.Code
+type InitFn = func() errnov1.Code
+type ActivateFn = func() bool
+type UpdateFn = func(time.Duration)
+type DeactivateFn = func()
+type DestroyFn = func()
 
-	OnAllLoaded()
-
-	Activate() bool
-	Update(dt time.Duration)
-	Deactivate()
-
-	Unload()
+type System struct {
+	Instance   unsafe.Pointer
+	Init       InitFn
+	Activate   ActivateFn
+	Update     UpdateFn
+	Deactivate DeactivateFn
+	Destroy    DestroyFn
 }
