@@ -1,5 +1,7 @@
 package limbov1
 
+import "slices"
+
 type Iterator[T comparable] struct {
 	iterate []T
 	pointer int
@@ -31,6 +33,10 @@ func (x *Iterator[T]) First(buff *T, fn func(T) bool) bool {
 	}
 
 	return false
+}
+
+func (x *Iterator[T]) ForEachB(condFn func(T) bool) bool {
+	return slices.ContainsFunc(x.iterate, condFn)
 }
 
 func (x *Iterator[T]) Count() int {
