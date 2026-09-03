@@ -2,26 +2,11 @@ package limbov1
 
 import (
 	"net"
-	"unsafe"
 
-	"github.com/limboware/limbo/internal"
 	errnov1 "github.com/rejchev/errno"
 )
 
 const ConnectionsMax = uint64(0xFFFF_FFFF_FFFF_0000)
-
-// poll.netFD
-type netFD struct {
-	pfd internal.FD
-
-	// immutable until Close
-	family      int
-	sotype      int
-	isConnected bool // handshake completed or use of association with peer
-	net         string
-	laddr       net.Addr
-	raddr       net.Addr
-}
 
 var manager NetworkManager = NetworkManager{
 	conns: make([]net.Conn, 0, 8),
@@ -84,8 +69,8 @@ func (x *NetworkManager) Type(v NetConn) NetConnType {
 
 func (x *NetworkManager) Handle(v NetConn, buff *uintptr) bool {
 	if conn := x.Connection(v); conn != nil {
-		if ptr := (*netFD)(*(*unsafe.Pointer)(*(*unsafe.Pointer)(unsafe.Pointer(&conn)))); ptr != nil {
-			*buff = uintptr(ptr.pfd.Sysfd)
+		if fd := GetDescriptor(conn); fd != 0 {
+			*buff = fd
 			return true
 		}
 	}
