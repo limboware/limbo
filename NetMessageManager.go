@@ -85,6 +85,22 @@ func (x *NetMessageManager) Send(typ NetMessageType, payload proto.Message, data
 	return string(x.id[idx][:])
 }
 
+func (x *NetMessageManager) SendA(typ NetMessageType, payload proto.Message, data []byte, recipe ...Entity) string {
+	return NetMessages().Send(typ, payload, data, recipe)
+}
+
+func (x *NetMessageManager) SendB(typ NetMessageType, data []byte, recipe ...Entity) string {
+	return NetMessages().Send(typ, nil, data, recipe)
+}
+
+func (x *NetMessageManager) SendC(typ NetMessageType, recipe ...Entity) string {
+	return NetMessages().Send(typ, nil, nil, recipe)
+}
+
+func (x *NetMessageManager) SendD(typ NetMessageType, payload proto.Message, recipe ...Entity) string {
+	return NetMessages().Send(typ, payload, nil, recipe)
+}
+
 func (x *NetMessageManager) Len() int {
 	return len(x.id)
 }
