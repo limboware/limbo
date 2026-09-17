@@ -1,6 +1,6 @@
 //go:build unix || (js && wasm) || wasip1
 
-package internal
+package sys
 
 type FD struct {
 	// Lock sysfd and serialize access to Read and Write methods.

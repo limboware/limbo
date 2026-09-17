@@ -17,6 +17,8 @@
 ```bash
 go get github.com/limboware/limbo
 ```
+## Supports
+No Windows support
 
 ## Contributing
 If you find an issue, please report it on the [issue page](https://github.com/limboware/limbo/issues)
