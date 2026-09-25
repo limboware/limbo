@@ -1,6 +1,9 @@
 package sys
 
-import "syscall"
+import (
+	"net"
+	"syscall"
+)
 
 // poll.netFD
 type FD struct {
@@ -32,6 +35,19 @@ type FD struct {
 
 	// Whether this is a file rather than a network socket.
 	isFile bool
+}
+
+// poll.netFD
+type NetFD struct {
+	Pfd FD
+
+	// immutable until Close
+	family      int
+	sotype      int
+	isConnected bool // handshake completed or use of association with peer
+	net         string
+	laddr       net.Addr
+	raddr       net.Addr
 }
 
 func SetNonblock(fd uintptr, nonb bool) error {
