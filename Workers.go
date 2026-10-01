@@ -2,30 +2,64 @@ package limbov1
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	errnov1 "github.com/rejchev/errno"
 )
 
-type WorkerManager struct {
-	cancels []context.CancelFunc
-	// jobCreatedAt    []int64
+const WORKERS_MAX = ^uint8(0)
 
-	router map[string]int
+type WorkerFn = func(ctx context.Context)
+
+func WorkerLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		default:
+
+		}
+	}
+}
+
+type WorkerManager struct {
+	workers []Worker
+
+	sinces  []int64
+	cancels []context.CancelFunc
+
+	gen  []uint8
+	free []uint8
+
+	router map[Worker]int
 
 	wg     sync.WaitGroup
 	ctx    context.Context
 	cancel context.CancelFunc
+	rwm    sync.RWMutex
+
+	total int8
 }
 
 var w = WorkerManager{
+	workers: make([]Worker, 0, 8),
+
+	sinces:  make([]int64, 0, 8),
 	cancels: make([]context.CancelFunc, 0, 8),
-	router:          map[string]int{},
-	wg:              sync.WaitGroup{},
-	ctx:             nil,
-	cancel:          nil,
+
+	gen:  make([]uint8, 0, 8),
+	free: make([]uint8, 0, 8),
+
+	router: map[Worker]int{},
+
+	wg:     sync.WaitGroup{},
+	rwm:    sync.RWMutex{},
+	ctx:    nil,
+	cancel: nil,
+	total:  8,
 }
 
 func Workers() *WorkerManager {
@@ -40,75 +74,117 @@ func (x *WorkerManager) Init() errnov1.Code {
 	return errnov1.OK
 }
 
-func (x *WorkerManager) Close() {
+func (x *WorkerManager) Destroy() {
 	x.cancel()
 	x.wg.Wait()
 }
 
-func (x *WorkerManager) Run(ttl time.Duration, jobFn func(context.Context)) string {
-	if jobFn == nil {
-		return ""
+func (x *WorkerManager) Run(buff *Worker) bool {
+	if len(x.workers) >= int(x.total) {
+		return false
 	}
 
-	id := uuid.NewString()
-	causeCtx, cancel := context.WithDeadline(x.ctx, time.Now().Add(ttl+time.Second))
+	id := uint8(0)
 
-	idx := len(x.cancels)
-	x.cancels = append(x.cancels, cancel)
+	if len(x.free) > 0 {
+		id = x.free[len(x.free)-1]
+		x.free = x.free[:len(x.free)-1]
+	} else {
+		id = uint8(len(x.gen))
+		x.gen = append(x.gen, 0)
+	}
 
-	x.router[id] = idx
+	if len(x.cancels) <= int(id) {
+		x.cancels = append(x.cancels, nil)
+	}
+
+	if len(x.sinces) <= int(id) {
+		x.sinces = append(x.sinces, time.Now().Unix())
+	}
+
+	ctx, cancel := context.WithCancel(x.ctx)
+
+	x.cancels[id] = cancel
 
 	x.wg.Go(func() {
-		jobFn(causeCtx)
+		WorkerLoop(ctx)
 	})
 
-	return id
+	*buff = MakeWorker(id, x.gen[id])
+
+	innerIdx := len(x.workers)
+
+	x.workers = append(x.workers, *buff)
+
+	x.router[*buff] = innerIdx
+
+	Events().Publish("workers.new", *buff)
+
+	return true
 }
 
-func (x *WorkerManager) Cancel(v string) bool {
-	if idx := x.navigate(v); idx != -1 {
-		x.cancels[idx]()
-		return true
-	}
-
-	return false
+func (x *WorkerManager) Since(v Worker) int64 {
+	return x.sinces[v.Id()]
 }
 
-func (x *WorkerManager) navigate(v string) int {
-	if id, ok := x.router[v]; ok {
-		return id
+func (x *WorkerManager) Cancel(v Worker) context.CancelFunc {
+	return x.cancels[v.Id()]
+}
+
+func (x *WorkerManager) IsAlive(v Worker) bool {
+	return x.gen[v.Id()] == v.Gen()
+}
+
+func (x *WorkerManager) Iterator() *Iterator[Worker] {
+	buff := make([]Worker, len(x.workers))
+
+	copy(buff, x.workers)
+
+	return NewIterator(buff)
+}
+
+func (x *WorkerManager) route(v Worker) int {
+	if innerIdx, ok := x.router[v]; ok {
+		return innerIdx
 	}
 
 	return -1
 }
 
-func (x *WorkerManager) Destroy(v string) {
-	idx := -1
-
-	if idx = x.navigate(v); idx < 0 {
+func (x *WorkerManager) Remove(v Worker) {
+	if !x.IsAlive(v) {
 		return
+	}
+
+	innerIdx := x.route(v)
+
+	if innerIdx == -1 {
+		return
+	}
+
+	Events().Publish("workers.remove", v)
+
+	idx := v.Id()
+	if (x.gen[idx] + 1) == math.MaxUint8 {
+		x.gen[idx] = 0
 	}
 
 	x.cancels[idx]()
 
-	len := len(x.cancels)
+	x.gen[idx]++
+	x.cancels[idx] = nil
+	x.sinces[idx] = 0
+	x.free = append(x.free, idx)
 
-	last := len - 1
+	len := len(x.workers)
 
-	if last != idx {
-		lastKey := ""
-
-		for k, v := range x.router {
-			if v == last {
-				lastKey = k
-				break
-			}
-		}
-
-		x.router[lastKey] = idx
-		x.cancels[idx] = x.cancels[last]
+	if len > 1 && len-1 != innerIdx {
+		x.workers[innerIdx] = x.workers[len-1]
+		x.router[x.workers[len-1]] = innerIdx
 	}
 
-	x.cancels = x.cancels[:last]
 	delete(x.router, v)
+	x.workers = x.workers[:len-1]
+
+	Events().Publish("workers.removed", v)
 }
