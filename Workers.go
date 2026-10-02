@@ -176,7 +176,7 @@ func (x *WorkerManager) Shutdown(v Worker) {
 } 
 
 func (x *WorkerManager) IsRemovable(v Worker) bool {
-	return x.IsAlive(v) && x.ShutdownedAt(v) != 0 && (time.Now().Unix() - x.ShutdownedAt(v)) > 10 
+	return x.ShutdownedAt(v) != 0 && (time.Now().Unix() - x.ShutdownedAt(v)) > 10 
 }
 
 func (x *WorkerManager) Iterator() *Iterator[Worker] {
@@ -196,7 +196,7 @@ func (x *WorkerManager) route(v Worker) int {
 }
 
 func (x *WorkerManager) Remove(v Worker) {
-	if !x.IsAlive(v) || x.ShutdownedAt(v) == 0 {
+	if !x.IsAlive(v) || !x.IsRemovable(v) {
 		return
 	}
 
