@@ -13,14 +13,43 @@ const WORKERS_MAX = ^uint8(0)
 
 type WorkerFn = func(ctx context.Context)
 
-func WorkerLoop(ctx context.Context) {
-	for {
+func WorkerLoop(ctx context.Context, w Worker, tickrate int, shutdownedAt *int64) {
+	var taskCtx context.Context
+	var taskCancelFn context.CancelFunc
+	var task Task
+
+	tickd := time.Second / time.Duration(tickrate)
+	next := time.Now()
+
+	for (*shutdownedAt) == 0 {
 		select {
 		case <-ctx.Done():
 			return
 
 		default:
+			now := time.Now()
 
+			if now.Before(next) {
+				remaining := next.Sub(now)
+
+				if remaining > 2*time.Millisecond {
+					time.Sleep(remaining - time.Millisecond)
+				}
+
+				continue
+			}
+
+			next = now.Add(tickd)
+
+			if Tasks().Get(w, &task) {
+				taskCtx, taskCancelFn = context.WithDeadline(ctx, time.Now().Add(Tasks().TTL(task)))
+
+				errno := Tasks().Execute(w, task, taskCancelFn)(taskCtx, w, task)
+
+				Tasks().SetDone(w, task, errno, time.Now().Unix())
+
+				taskCancelFn()
+			}
 		}
 	}
 }
@@ -28,8 +57,9 @@ func WorkerLoop(ctx context.Context) {
 type WorkerManager struct {
 	workers []Worker
 
-	sinces  []int64
-	cancels []context.CancelFunc
+	sinces       []int64
+	cancels      []context.CancelFunc
+	shutdownedAt []int64
 
 	gen  []uint8
 	free []uint8
@@ -40,15 +70,14 @@ type WorkerManager struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	rwm    sync.RWMutex
-
-	total int8
 }
 
 var w = WorkerManager{
 	workers: make([]Worker, 0, 8),
 
-	sinces:  make([]int64, 0, 8),
-	cancels: make([]context.CancelFunc, 0, 8),
+	sinces:       make([]int64, 0, 8),
+	cancels:      make([]context.CancelFunc, 0, 8),
+	shutdownedAt: make([]int64, 0, 8),
 
 	gen:  make([]uint8, 0, 8),
 	free: make([]uint8, 0, 8),
@@ -59,7 +88,6 @@ var w = WorkerManager{
 	rwm:    sync.RWMutex{},
 	ctx:    nil,
 	cancel: nil,
-	total:  8,
 }
 
 func Workers() *WorkerManager {
@@ -80,7 +108,7 @@ func (x *WorkerManager) Destroy() {
 }
 
 func (x *WorkerManager) Run(buff *Worker) bool {
-	if len(x.workers) >= int(x.total) {
+	if len(x.workers) >= int(WORKERS_MAX - 1) {
 		return false
 	}
 
@@ -102,15 +130,19 @@ func (x *WorkerManager) Run(buff *Worker) bool {
 		x.sinces = append(x.sinces, time.Now().Unix())
 	}
 
+	if len(x.shutdownedAt) <= int(id) {
+		x.shutdownedAt = append(x.shutdownedAt, 0)
+	}
+
 	ctx, cancel := context.WithCancel(x.ctx)
 
 	x.cancels[id] = cancel
+	
+	*buff = MakeWorker(id, x.gen[id])
 
 	x.wg.Go(func() {
-		WorkerLoop(ctx)
+		WorkerLoop(ctx, *buff, 64, &x.shutdownedAt[id])
 	})
-
-	*buff = MakeWorker(id, x.gen[id])
 
 	innerIdx := len(x.workers)
 
@@ -135,6 +167,18 @@ func (x *WorkerManager) IsAlive(v Worker) bool {
 	return x.gen[v.Id()] == v.Gen()
 }
 
+func (x *WorkerManager) ShutdownedAt(v Worker) int64 {
+	return x.shutdownedAt[v.Id()]
+}
+
+func (x *WorkerManager) Shutdown(v Worker) {
+	x.shutdownedAt[v.Id()] = time.Now().Unix()
+} 
+
+func (x *WorkerManager) IsRemovable(v Worker) bool {
+	return x.IsAlive(v) && x.ShutdownedAt(v) != 0 && (time.Now().Unix() - x.ShutdownedAt(v)) > 10 
+}
+
 func (x *WorkerManager) Iterator() *Iterator[Worker] {
 	buff := make([]Worker, len(x.workers))
 
@@ -152,7 +196,7 @@ func (x *WorkerManager) route(v Worker) int {
 }
 
 func (x *WorkerManager) Remove(v Worker) {
-	if !x.IsAlive(v) {
+	if !x.IsAlive(v) || x.ShutdownedAt(v) == 0 {
 		return
 	}
 
