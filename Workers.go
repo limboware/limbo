@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"sync"
-	"time"
 
 	errnov1 "github.com/rejchev/errno"
 )
@@ -13,52 +12,11 @@ const WORKERS_MAX = ^uint8(0)
 
 type WorkerFn = func(ctx context.Context)
 
-func WorkerLoop(ctx context.Context, w Worker, tickrate int, shutdownedAt *int64) {
-	var taskCtx context.Context
-	var taskCancelFn context.CancelFunc
-	var task Task
-
-	tickd := time.Second / time.Duration(tickrate)
-	next := time.Now()
-
-	for (*shutdownedAt) == 0 {
-		select {
-		case <-ctx.Done():
-			return
-
-		default:
-			now := time.Now()
-
-			if now.Before(next) {
-				remaining := next.Sub(now)
-
-				if remaining > 2*time.Millisecond {
-					time.Sleep(remaining - time.Millisecond)
-				}
-
-				continue
-			}
-
-			next = now.Add(tickd)
-
-			if Tasks().Get(w, &task) {
-				taskCtx, taskCancelFn = context.WithDeadline(ctx, time.Now().Add(Tasks().TTL(task)))
-
-				errno := Tasks().Execute(w, task, taskCancelFn)(taskCtx, w, task)
-
-				Tasks().SetDone(w, task, errno, time.Now().Unix())
-
-				taskCancelFn()
-			}
-		}
-	}
-}
-
 type WorkerManager struct {
 	workers []Worker
 
-	sinces       []int64
 	cancels      []context.CancelFunc
+	runnedAt     []int64
 	shutdownedAt []int64
 
 	gen  []uint8
@@ -75,8 +33,8 @@ type WorkerManager struct {
 var w = WorkerManager{
 	workers: make([]Worker, 0, 8),
 
-	sinces:       make([]int64, 0, 8),
 	cancels:      make([]context.CancelFunc, 0, 8),
+	runnedAt:     make([]int64, 0, 8),
 	shutdownedAt: make([]int64, 0, 8),
 
 	gen:  make([]uint8, 0, 8),
@@ -108,7 +66,7 @@ func (x *WorkerManager) Destroy() {
 }
 
 func (x *WorkerManager) Run(buff *Worker) bool {
-	if len(x.workers) >= int(WORKERS_MAX - 1) {
+	if len(x.workers) >= int(WORKERS_MAX-1) {
 		return false
 	}
 
@@ -126,23 +84,15 @@ func (x *WorkerManager) Run(buff *Worker) bool {
 		x.cancels = append(x.cancels, nil)
 	}
 
-	if len(x.sinces) <= int(id) {
-		x.sinces = append(x.sinces, time.Now().Unix())
+	if len(x.runnedAt) <= int(id) {
+		x.runnedAt = append(x.runnedAt, 0)
 	}
 
 	if len(x.shutdownedAt) <= int(id) {
 		x.shutdownedAt = append(x.shutdownedAt, 0)
 	}
 
-	ctx, cancel := context.WithCancel(x.ctx)
-
-	x.cancels[id] = cancel
-	
 	*buff = MakeWorker(id, x.gen[id])
-
-	x.wg.Go(func() {
-		WorkerLoop(ctx, *buff, 64, &x.shutdownedAt[id])
-	})
 
 	innerIdx := len(x.workers)
 
@@ -155,28 +105,36 @@ func (x *WorkerManager) Run(buff *Worker) bool {
 	return true
 }
 
-func (x *WorkerManager) Since(v Worker) int64 {
-	return x.sinces[v.Id()]
+func (x *WorkerManager) ShutdownedAt(v Worker) int64 {
+	return x.shutdownedAt[v.Id()]
 }
 
-func (x *WorkerManager) Cancel(v Worker) context.CancelFunc {
+func (x *WorkerManager) RunnedAt(v Worker) int64 {
+	return x.runnedAt[v.Id()]
+}
+
+func (x *WorkerManager) CancelFn(v Worker) context.CancelFunc {
 	return x.cancels[v.Id()]
+}
+
+func (x *WorkerManager) SetCancelFn(w Worker, v context.CancelFunc) {
+	x.cancels[w.Id()] = v
 }
 
 func (x *WorkerManager) IsAlive(v Worker) bool {
 	return x.gen[v.Id()] == v.Gen()
 }
 
-func (x *WorkerManager) ShutdownedAt(v Worker) int64 {
-	return x.shutdownedAt[v.Id()]
+func (x *WorkerManager) SetRunnedAt(w Worker, v int64) {
+	x.runnedAt[w.Id()] = v
+}
+
+func (x *WorkerManager) SetShuthdownedAt(w Worker, v int64) {
+	x.shutdownedAt[w.Id()] = v
 }
 
 func (x *WorkerManager) Shutdown(v Worker) {
-	x.shutdownedAt[v.Id()] = time.Now().Unix()
-} 
-
-func (x *WorkerManager) IsRemovable(v Worker) bool {
-	return x.ShutdownedAt(v) != 0 && (time.Now().Unix() - x.ShutdownedAt(v)) > 10 
+	Events().Publish("workers.shutdown", v)
 }
 
 func (x *WorkerManager) Iterator() *Iterator[Worker] {
@@ -196,7 +154,7 @@ func (x *WorkerManager) route(v Worker) int {
 }
 
 func (x *WorkerManager) Remove(v Worker) {
-	if !x.IsAlive(v) || !x.IsRemovable(v) {
+	if !x.IsAlive(v) {
 		return
 	}
 
@@ -212,12 +170,11 @@ func (x *WorkerManager) Remove(v Worker) {
 	if (x.gen[idx] + 1) == math.MaxUint8 {
 		x.gen[idx] = 0
 	}
-
-	x.cancels[idx]()
-
+	
 	x.gen[idx]++
 	x.cancels[idx] = nil
-	x.sinces[idx] = 0
+	x.runnedAt[idx] = 0
+	x.shutdownedAt[idx] = 0
 	x.free = append(x.free, idx)
 
 	len := len(x.workers)

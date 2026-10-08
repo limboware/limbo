@@ -2,38 +2,39 @@ package limbov1
 
 import (
 	"context"
-	"sync"
+	"math"
 	"time"
+	"unsafe"
 
 	errnov1 "github.com/rejchev/errno"
 )
 
 type Task_t struct {
-	Id         Task
-	TTL        time.Duration
-	Worker     Worker
-	CancelFn   context.CancelFunc
-	DoneAt     int64
-	ExecutedAt int64
+	ID        Task
+	Instance  unsafe.Pointer
+	ExecuteFn ExecuteFn
+	DoneFn    DoneFn
+	TTL       time.Duration
+	Context   context.Context
+	CancelFn  context.CancelFunc
 }
 
-type TaskExecuteFn = func(context.Context, Worker, Task) errnov1.Code
+type DoneFn = func() bool
+
+type ExecuteFn = func(ctx context.Context, dt time.Duration)
 
 type TaskManager struct {
-	tasks      []Task
-	ttl        []time.Duration
-	execFn     []TaskExecuteFn
-	worker     []Worker
-	cancel     []context.CancelFunc
-	code       []errnov1.Code
-	doneAt     []int64
-	executedAt []int64
+	tasks []Task
+
+	instances  []unsafe.Pointer
+	doneFns    []DoneFn
+	executeFns []ExecuteFn
+	ttls       []time.Duration
 
 	gen  []uint8
-	free [][3]byte
+	free []uint32
 
 	router map[Task]int
-	rwm    sync.RWMutex
 }
 
 var tasks = TaskManager{}
@@ -43,15 +44,21 @@ func Tasks() *TaskManager {
 }
 
 func (x *TaskManager) Init() errnov1.Code {
-	x.rwm = sync.RWMutex{}
+	x.tasks = make([]Task, 0, 16)
+
+	x.gen = make([]uint8, 0, 16)
+	x.free = make([]uint32, 0, 16)
 	x.router = map[Task]int{}
+
+	x.instances = make([]unsafe.Pointer, 0, 16)
+	x.executeFns = make([]ExecuteFn, 0, 16)
+	x.doneFns = make([]DoneFn, 0, 16)
+	x.ttls = make([]time.Duration, 0, 16)
 
 	return errnov1.OK
 }
 
 func (x *TaskManager) route(v Task) int {
-	x.rwm.RLock()
-	defer x.rwm.RUnlock()
 	if inner, ok := x.router[v]; ok {
 		return inner
 	}
@@ -59,148 +66,126 @@ func (x *TaskManager) route(v Task) int {
 	return -1
 }
 
-func (x *TaskManager) CancelFn(v Task) context.CancelFunc {
-	x.rwm.RLock()
-	defer x.rwm.RUnlock()
-	return x.cancel[v.Id()]
+func (x *TaskManager) Instance(v Task) unsafe.Pointer {
+	return x.instances[v.Id()]
 }
 
-func (x *TaskManager) Worker(v Task) Worker {
-	x.rwm.RLock()
-	defer x.rwm.RUnlock()
-	return x.worker[v.Id()]
+func (x *TaskManager) ExecuteFn(v Task) ExecuteFn {
+	return x.executeFns[v.Id()]
 }
 
-func (x *TaskManager) DoneAt(v Task) int64 {
-	x.rwm.RLock()
-	defer x.rwm.RUnlock()
-	return x.doneAt[v.Id()]
-}
-
-func (x *TaskManager) Code(v Task) errnov1.Code {
-	x.rwm.RLock()
-	defer x.rwm.RUnlock()
-	return x.code[v.Id()]
-}
-
-func (x *TaskManager) ExecutedAt(v Task) int64 {
-	x.rwm.RLock()
-	defer x.rwm.RUnlock()
-	return x.executedAt[v.Id()]
+func (x *TaskManager) DoneFn(v Task) DoneFn {
+	return x.doneFns[v.Id()]
 }
 
 func (x *TaskManager) TTL(v Task) time.Duration {
-	x.rwm.RLock()
-	defer x.rwm.RUnlock()
-	return x.ttl[v.Id()]
+	return x.ttls[v.Id()]
 }
 
-func (x *TaskManager) IsAlive(v Task) bool {
-	x.rwm.RLock()
-	defer x.rwm.RUnlock()
-	return x.gen[v.Id()] == v.Gen()
-}
-
-func (x *TaskManager) SetDone(w Worker, t Task, code errnov1.Code, at int64) {
-	x.rwm.Lock()
-	if x.gen[t.Id()] == t.Gen() && x.executedAt[t.Id()] != 0 {
-		x.doneAt[t.Id()] = at
-		x.code[t.Id()] = code
+func (x *TaskManager) Struct(v Task) *Task_t {
+	return &Task_t{
+		ID:        v,
+		Instance:  x.Instance(v),
+		ExecuteFn: x.ExecuteFn(v),
+		DoneFn:    x.DoneFn(v),
+		TTL:       x.TTL(v),
 	}
-	x.rwm.Unlock()
-}
-
-func (x *TaskManager) SetExecutedAt(w Worker, t Task, v int64) {
-	x.rwm.Lock()
-	if x.gen[t.Id()] == t.Gen() && x.worker[t.Id()] != w {
-		x.executedAt[t.Id()] = v
-	}
-	x.rwm.Unlock()
-}
-
-func (x *TaskManager) SetCancelFn(w Worker, t Task, v context.CancelFunc) {
-	x.rwm.Lock()
-	if x.gen[t.Id()] == t.Gen() && x.worker[t.Id()] != w {
-		x.cancel[t.Id()] = v
-	}
-	x.rwm.Unlock()
-}
-
-func (x *TaskManager) Execute(w Worker, t Task, cancelFn context.CancelFunc) TaskExecuteFn {
-	x.rwm.Lock()
-	defer x.rwm.Unlock()
-
-	if x.gen[t.Id()] == t.Gen() && x.worker[t.Id()] == w && x.executedAt[t.Id()] == 0 {
-		x.executedAt[t.Id()] = time.Now().Unix()
-		x.cancel[t.Id()] = cancelFn
-		return x.execFn[t.Id()]
-	}
-
-	return nil
-}
-
-func (x *TaskManager) Get(w Worker, buff *Task) bool {
-	if buff == nil {
-		return false
-	}
-
-	iter := x.Iterator()
-
-	if iter == nil {
-		return false
-	}
-
-	if !iter.First(buff, func(t Task) bool {
-		return Tasks().ExecutedAt(t) == 0
-	}) {
-		return false
-	}
-
-	x.rwm.Lock()
-	defer x.rwm.Unlock()
-
-	if x.gen[(*buff).Id()] != (*buff).Gen() {
-		return false
-	}
-
-	x.worker[(*buff).Id()] = w
-
-	return true
 }
 
 func (x *TaskManager) Iterator() *Iterator[Task] {
-	x.rwm.RLock()
-	l := len(x.tasks)
-	x.rwm.RUnlock()
+	buff := make([]Task, len(x.tasks))
 
-	if l == 0 {
-		return nil
-	}
-
-	buff := make([]Task, l)
-
-	x.rwm.RLock()
 	copy(buff, x.tasks)
-	x.rwm.RUnlock()
 
 	return NewIterator(buff)
 }
 
-func (x *TaskManager) IsInWork(v Task) bool {
-	return x.ExecutedAt(v) != 0 && x.DoneAt(v) == 0
-}
-
-func (x *TaskManager) ExecDuration(v Task) int64 {
-	if !x.IsAlive(v) || !x.IsInWork(v) {
-		return 0
+func (x *TaskManager) New(initFn func(*Task_t), buff *Task) bool {
+	if initFn == nil || buff == nil {
+		return false
 	}
 
-	return time.Now().Unix() - x.ExecutedAt(v)
+	pTask := new(Task_t)
+
+	initFn(pTask)
+
+	idx := uint32(0)
+
+	if len(x.free) > 0 {
+		idx = x.free[len(x.free)-1]
+		x.free = x.free[:len(x.free)-1]
+	} else {
+		idx = uint32(len(x.gen))
+		x.gen = append(x.gen, 0)
+	}
+
+	if len(x.instances) <= int(idx) {
+		x.instances = append(x.instances, nil)
+	}
+
+	if len(x.executeFns) <= int(idx) {
+		x.executeFns = append(x.executeFns, nil)
+	}
+
+	if len(x.doneFns) <= int(idx) {
+		x.doneFns = append(x.doneFns, nil)
+	}
+
+	if len(x.ttls) <= int(idx) {
+		x.ttls = append(x.ttls, 0)
+	}
+
+	x.instances[idx] = pTask.Instance
+	x.executeFns[idx] = pTask.ExecuteFn
+	x.doneFns[idx] = pTask.DoneFn
+	x.ttls[idx] = pTask.TTL
+
+	*buff = MakeTask(idx, x.gen[idx])
+
+	innerIdx := len(x.tasks)
+
+	x.tasks = append(x.tasks, *buff)
+
+	x.router[*buff] = innerIdx
+
+	Events().Publish("tasks.new", *buff)
+
+	return true
+}
+
+func (x *TaskManager) IsAlive(v Task) bool {
+	return x.route(v) != -1 && x.gen[v.Id()] == v.Gen()
 }
 
 func (x *TaskManager) Remove(v Task) {
-	if !x.IsAlive(v) || x.IsInWork(v) {
+	if !x.IsAlive(v) {
 		return
 	}
 
+	Events().Publish("tasks.remove", v)
+
+	idx := v.Id()
+	if x.gen[idx]+1 == math.MaxUint8 {
+		x.gen[idx] = 0
+	}
+
+	x.gen[idx]++
+
+	x.instances[idx] = nil
+	x.executeFns[idx] = nil
+	x.doneFns[idx] = nil
+	x.ttls[idx] = 0
+
+	l := len(x.tasks)
+
+	if innerIdx := x.route(v); l > 1 && l-1 != innerIdx {
+		x.tasks[innerIdx] = x.tasks[l-1]
+		x.router[x.tasks[l-1]] = innerIdx
+	}
+
+	delete(x.router, v)
+
+	x.tasks = x.tasks[:l-1]
+
+	Events().Publish("tasks.removed", v)
 }
