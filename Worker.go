@@ -152,17 +152,6 @@ func (x *Worker_t) Run(ctx context.Context) errnov1.Code {
 	return errnov1.OK
 }
 
-func (x *Worker_t) setContext(t Task, ctx context.Context, cancelFn context.CancelFunc) int {
-	if idx := x.route(t); idx != -1 {
-		x.cancelFn[idx] = cancelFn
-		x.ctx[idx] = ctx
-
-		return idx
-	}
-
-	return -1
-}
-
 func (x *Worker_t) route(v Task) int {
 	if innerIdx, ok := x.router[v]; ok {
 		return innerIdx

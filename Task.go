@@ -2,6 +2,8 @@ package limbov1
 
 type Task uint32
 
+const INVALID_TASK = Task(^uint32(0))
+
 func MakeTask(id uint32, gen uint8) Task {
 	return Task((uint32(id) >> 8) << 8 | uint32(gen))
 }

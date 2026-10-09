@@ -105,19 +105,22 @@ func (x *TaskManager) New(initFn func(*Task_t), buff *Task) bool {
 		return false
 	}
 
-	pTask := new(Task_t)
-
-	initFn(pTask)
-
 	idx := uint32(0)
 
 	if len(x.free) > 0 {
 		idx = x.free[len(x.free)-1]
 		x.free = x.free[:len(x.free)-1]
 	} else {
-		idx = uint32(len(x.gen))
+		if idx = uint32(len(x.gen)); idx+1 == INVALID_TASK.Id() {
+			return false
+		}
+
 		x.gen = append(x.gen, 0)
 	}
+
+	pTask := new(Task_t)
+
+	initFn(pTask)
 
 	if len(x.instances) <= int(idx) {
 		x.instances = append(x.instances, nil)
