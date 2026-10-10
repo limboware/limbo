@@ -9,14 +9,14 @@ import (
 	errnov1 "github.com/rejchev/errno"
 )
 
-type workerSystem struct {
+type WorkerSystem struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-func WorkerSystem(buff *System) {
-	v := new(workerSystem)
+func WorkerSystemFactory(buff *System) {
+	v := new(WorkerSystem)
 
 	*buff = System{
 		Instance:   unsafe.Pointer(v),
@@ -28,7 +28,7 @@ func WorkerSystem(buff *System) {
 	}
 }
 
-func (x *workerSystem) Load() errnov1.Code {
+func (x *WorkerSystem) Load() errnov1.Code {
 
 	Events().Subscribe("workers.new", x.onWorker)
 	Events().Subscribe("workers.running", x.onWorkerRunning)
@@ -40,7 +40,7 @@ func (x *workerSystem) Load() errnov1.Code {
 	return Workers().Init()
 }
 
-func (x *workerSystem) onWorker(_ string, data any) {
+func (x *WorkerSystem) onWorker(_ string, data any) {
 	if w := data.(Worker); Workers().IsAlive(w) {
 		ctx, cancel := context.WithCancel(x.ctx)
 
@@ -68,19 +68,19 @@ func (x *workerSystem) onWorker(_ string, data any) {
 	}
 }
 
-func (x *workerSystem) onWorkerRunning(_ string, data any) {
+func (x *WorkerSystem) onWorkerRunning(_ string, data any) {
 	if w := data.(OnWorkerRun); Workers().IsAlive(w.ID) {
 		Workers().SetRunnedAt(w.ID, w.At)
 	}
 }
 
-func (x *workerSystem) onWorkerFinished(_ string, data any) {
+func (x *WorkerSystem) onWorkerFinished(_ string, data any) {
 	if w := data.(OnWorkerFinished); Workers().IsAlive(w.ID) {
 		Workers().SetShuthdownedAt(w.ID, w.At)
 	}
 }
 
-func (x *workerSystem) onWorkerRemove(_ string, data any) {
+func (x *WorkerSystem) onWorkerRemove(_ string, data any) {
 	if w := data.(Worker); Workers().IsAlive(w) {
 		if cancelFn := Workers().CancelFn(w); cancelFn != nil && Workers().ShutdownedAt(w) == 0 {
 			cancelFn()
@@ -88,7 +88,7 @@ func (x *workerSystem) onWorkerRemove(_ string, data any) {
 	}
 }
 
-func (x *workerSystem) Unload() {
+func (x *WorkerSystem) Unload() {
 	x.cancel()
 	x.wg.Wait()
 }
