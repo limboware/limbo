@@ -14,6 +14,10 @@ func NewIterator[T comparable](v []T) *Iterator[T] {
 	}
 }
 
+func (x *Iterator[T]) Closer() []T {
+	return x.iterate
+}
+
 func (x *Iterator[T]) HasNext() bool {
 	return len(x.iterate) > (x.pointer + 1)
 }
@@ -53,4 +57,8 @@ func (x Iterator[T]) Next() {
 
 func (x *Iterator[T]) Get() T {
 	return x.iterate[x.pointer]
+}
+
+func (x *Iterator[T]) GetAt(i int) T {
+	return x.iterate[i]
 }
