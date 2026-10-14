@@ -3,12 +3,15 @@ package limbov1
 import (
 	"time"
 
+	"github.com/limboware/limbo/debug"
 	errnov1 "github.com/rejchev/errno"
 )
 
 type World struct {
 	tickCounter uint64
 }
+
+var world = World{}
 
 func (x *World) Deactivate() {
 	Systems().Deactivate()
@@ -19,10 +22,10 @@ func (x *World) Activate() bool {
 }
 
 func (x *World) Destroy() {
+	debug.Get().Printf("<World::Destroy> start")
 	Systems().Destroy()
+	debug.Get().Printf("<World::Destroy> done")
 }
-
-var world = World{}
 
 func GetWorld() *World {
 	return &world
@@ -37,6 +40,7 @@ func (x *World) CreateCompotype(allocFn CompotypeAllocator, buff *Compotype) boo
 }
 
 func (x *World) Init() errnov1.Code {
+	debug.Get().Printf("<World::Init> start")
 	x.tickCounter = 0
 
 	if err := Entities().Init(); err != errnov1.OK {
@@ -56,6 +60,8 @@ func (x *World) Init() errnov1.Code {
 	}
 
 	Events().Publish("world.loaded", nil)
+
+	debug.Get().Printf("<World::Init> done")
 
 	return errnov1.OK
 }
