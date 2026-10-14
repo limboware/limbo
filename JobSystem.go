@@ -33,7 +33,7 @@ func (x *JobSystem) Init() errnov1.Code {
 
 	Events().Subscribe("workers.finished", x.onWorkerFinished)
 
-	return errnov1.OK
+	return Tasks().Init()
 }
 
 func (x *JobSystem) onNewTask(_ string, data any) {
