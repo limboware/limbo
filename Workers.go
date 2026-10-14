@@ -5,6 +5,7 @@ import (
 	"math"
 	"sync"
 
+	"github.com/limboware/limbo/debug"
 	errnov1 "github.com/rejchev/errno"
 )
 
@@ -41,11 +42,6 @@ var w = WorkerManager{
 	free: make([]uint8, 0, 8),
 
 	router: map[Worker]int{},
-
-	wg:     sync.WaitGroup{},
-	rwm:    sync.RWMutex{},
-	ctx:    nil,
-	cancel: nil,
 }
 
 func Workers() *WorkerManager {
@@ -53,16 +49,24 @@ func Workers() *WorkerManager {
 }
 
 func (x *WorkerManager) Init() errnov1.Code {
-	if x.ctx == nil {
-		x.ctx, x.cancel = context.WithCancel(context.Background())
-	}
+	debug.Get().Printf("<WorkerManager::Init> start")
 
+	debug.Get().Printf("<WorkerManager::Init> done")
 	return errnov1.OK
 }
 
 func (x *WorkerManager) Destroy() {
-	x.cancel()
-	x.wg.Wait()
+	debug.Get().Printf("<WorkerManager::Destroy> start")
+
+	if iter := x.Iterator(); iter != nil {
+		iter.ForEach(func(w Worker) {
+			if x.IsAlive(w) {
+				x.Remove(w)
+			}
+		})
+	}
+
+	debug.Get().Printf("<WorkerManager::Destroy> done")
 }
 
 func (x *WorkerManager) Run(buff *Worker) bool {
@@ -170,7 +174,7 @@ func (x *WorkerManager) Remove(v Worker) {
 	if (x.gen[idx] + 1) == math.MaxUint8 {
 		x.gen[idx] = 0
 	}
-	
+
 	x.gen[idx]++
 	x.cancels[idx] = nil
 	x.runnedAt[idx] = 0

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/limboware/limbo/debug"
 	errnov1 "github.com/rejchev/errno"
 )
 
@@ -55,6 +56,7 @@ type Worker_t struct {
 }
 
 func (x *Worker_t) Init() {
+	debug.Get().Printf("<Worker_t::Init> #%d start", x.ID)
 	x.alive = true
 
 	x.tasks = make([]Task, 0, 16)
@@ -73,6 +75,8 @@ func (x *Worker_t) Init() {
 
 	Events().Subscribe("workers.shutdown", x.onShutdown)
 	// Events().Subscribe("jobs.")
+
+	debug.Get().Printf("<Worker_t::Init> #%d done", x.ID)
 }
 
 func (x *Worker_t) Run(ctx context.Context) errnov1.Code {
@@ -80,11 +84,17 @@ func (x *Worker_t) Run(ctx context.Context) errnov1.Code {
 	next := time.Now()
 	last := time.Now()
 
-	Events().PublishAsync("workers.running", x.ID)
+	debug.Get().Printf("<Worker_t::Run> #%d run (rate: %d; tickrate: %.4f)", x.ID, x.Rate, tickd.Seconds())
+
+	Events().PublishAsync("workers.running", &OnWorkerRun{
+		ID: x.ID,
+		At: time.Now().Unix(),
+	})
 
 	for x.alive {
 		select {
 		case <-ctx.Done():
+			debug.Get().Printf("<Worker_t::Run> #%d canceled", x.ID)
 			return errnov1.OK
 
 		default:
@@ -149,6 +159,8 @@ func (x *Worker_t) Run(ctx context.Context) errnov1.Code {
 		}
 	}
 
+	debug.Get().Printf("<Worker_t::Run> #%d shutdowned", x.ID)
+
 	return errnov1.OK
 }
 
@@ -165,6 +177,8 @@ func (x *Worker_t) Tasks() []Task {
 }
 
 func (x *Worker_t) onNew(_ string, data any) {
+	debug.Get().Printf("<Worker_t::onNew> #%d worker job with data: %v", x.ID, data)
+
 	if job := data.(*Job_t); job != nil && job.Worker == x.ID && job.Task != nil {
 
 		x.rw.Lock()
@@ -265,10 +279,14 @@ func (x *Worker_t) onCancel(_ string, data any) {
 }
 
 func (x *Worker_t) Destroy() {
+	debug.Get().Printf("<Worker_t::Destroy> #%d start", x.ID)
+
 	x.tasks = x.tasks[:0]
 	x.doneFn = x.doneFn[:0]
 	x.executeFn = x.executeFn[:0]
 	x.ttl = x.ttl[:0]
 	x.ctx = x.ctx[:0]
 	x.cancelFn = x.cancelFn[:0]
+
+	debug.Get().Printf("<Worker_t::Destroy> #%d done", x.ID)
 }
