@@ -24,6 +24,11 @@ func (x *World) Activate() bool {
 func (x *World) Destroy() {
 	debug.Get().Printf("<World::Destroy> start")
 	Systems().Destroy()
+
+	Components().OnUnLoad()
+	// Compotypes().Destroy()
+	Entities().Cleanup()
+
 	debug.Get().Printf("<World::Destroy> done")
 }
 
@@ -55,13 +60,24 @@ func (x *World) Init() errnov1.Code {
 		return err
 	}
 
-	if err := Systems().Load(); err != errnov1.OK {
+	if err := Systems().Init(); err != errnov1.OK {
+		return err
+	}
+
+	debug.Get().Printf("<World::Init> done")
+
+	return errnov1.OK
+}
+
+func (x *World) Load() errnov1.Code {
+	debug.Get().Printf("<World::Load> start")
+	if err := Systems().Load(); errnov1.FAIL(err) {
 		return err
 	}
 
 	Events().Publish("world.loaded", nil)
 
-	debug.Get().Printf("<World::Init> done")
+	debug.Get().Printf("<World::Load> done")
 
 	return errnov1.OK
 }
