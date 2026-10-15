@@ -51,7 +51,12 @@ func (x *Iterator[T]) Reset() {
 	x.pointer = 0
 }
 
-func (x Iterator[T]) Next() {
+func (x *Iterator[T]) Clear() {
+	x.iterate = x.iterate[:0]
+	x.pointer = 0
+}
+
+func (x *Iterator[T]) Next() {
 	x.pointer++
 }
 
